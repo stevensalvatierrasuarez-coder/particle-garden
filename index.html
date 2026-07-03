@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Particle Garden</title>
+<style>
+  :root {
+    --bg: #0a0a12;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+  }
+  #ui {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    color: #fff;
+    user-select: none;
+  }
+  .panel {
+    background: rgba(20, 20, 30, 0.55);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 12px 16px;
+  }
+  .title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    opacity: 0.9;
+    letter-spacing: 0.3px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .row:last-child { margin-bottom: 0; }
+  label {
+    font-size: 12px;
+    opacity: 0.7;
+    width: 70px;
+    flex-shrink: 0;
+  }
+  input[type="range"] {
+    width: 110px;
+  }
+  .swatches {
+    display: flex;
+    gap: 6px;
+  }
+  .swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.15s ease;
+  }
+  .swatch:hover { transform: scale(1.15); }
+  .swatch.active {
+    border-color: #fff;
+    transform: scale(1.15);
+  }
+  button {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover {
+    background: rgba(255,255,255,0.22);
+  }
+  #hint {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.45);
+    font-size: 12px;
+    z-index: 10;
+    text-align: center;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+  }
+  #count {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    color: rgba(255,255,255,0.4);
+    font-size: 12px;
+    z-index: 10;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="panel">
+    <div class="title">🎨 Particle Garden</div>
+    <div class="row">
+      <label>Modo</label>
+      <button id="modeBtn">Fuente</button>
+    </div>
+    <div class="row">
+      <label>Gravedad</label>
+      <input type="range" id="gravity" min="-0.3" max="0.6" step="0.01" value="0.15">
+    </div>
+    <div class="row">
+      <label>Cantidad</label>
+      <input type="range" id="rate" min="1" max="12" step="1" value="4">
+    </div>
+    <div class="row">
+      <label>Color</label>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="row">
+      <button id="clearBtn">Limpiar</button>
+    </div>
+  </div>
+</div>
+
+<div id="count">0 partículas</div>
+<div id="hint">Haz clic y arrastra en el lienzo · Suelta color en "Arcoíris"</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth * devicePixelRatio;
+  H = canvas.height = window.innerHeight * devicePixelRatio;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+const COLORS = [
+  { name: 'Arcoíris', value: 'rainbow', hue: null },
+  { name: 'Fuego', value: '#ff6b35', hue: 20 },
+  { name: 'Océano', value: '#00d9ff', hue: 190 },
+  { name: 'Menta', value: '#3dffb0', hue: 150 },
+  { name: 'Violeta', value: '#b06bff', hue: 270 },
+  { name: 'Rosa', value: '#ff5ca8', hue: 330 },
+];
+
+let currentColor = COLORS[0];
+const swatchesEl = document.getElementById('swatches');
+COLORS.forEach((c, i) => {
+  const el = document.createElement('div');
+  el.className = 'swatch' + (i === 0 ? ' active' : '');
+  el.style.background = c.value === 'rainbow'
+    ? 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)'
+    : c.value;
+  el.addEventListener('click', () => {
+    currentColor = c;
+    document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+    el.classList.add('active');
+  });
+  swatchesEl.appendChild(el);
+});
+
+let gravity = 0.15;
+let spawnRate = 4;
+document.getElementById('gravity').addEventListener('input', e => gravity = parseFloat(e.target.value));
+document.getElementById('rate').addEventListener('input', e => spawnRate = parseInt(e.target.value));
+
+let mode = 'fountain'; // 'fountain' or 'burst'
+const modeBtn = document.getElementById('modeBtn');
+modeBtn.addEventListener('click', () => {
+  mode = mode === 'fountain' ? 'burst' : 'fountain';
+  modeBtn.textContent = mode === 'fountain' ? 'Fuente' : 'Explosión';
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  particles.length = 0;
+});
+
+let particles = [];
+const MAX_PARTICLES = 4000;
+
+function rand(min, max) { return Math.random() * (max - min) + min; }
+
+function makeParticle(x, y, burst) {
+  const hue = currentColor.hue !== null ? currentColor.hue + rand(-15, 15) : rand(0, 360);
+  const angle = burst ? rand(0, Math.PI * 2) : rand(-Math.PI/2 - 0.6, -Math.PI/2 + 0.6);
+  const speed = burst ? rand(2, 9) : rand(2, 7);
+  return {
+    x, y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    life: 1,
+    decay: rand(0.006, 0.016),
+    size: rand(2, 5),
+    hue,
+    sat: rand(70, 100),
+    light: rand(50, 65),
+  };
+}
+
+let pointerDown = false;
+let px = 0, py = 0;
+
+function spawnAt(x, y) {
+  const n = mode === 'burst' ? spawnRate * 6 : spawnRate;
+  for (let i = 0; i < n; i++) {
+    if (particles.length < MAX_PARTICLES) {
+      particles.push(makeParticle(x, y, mode === 'burst'));
+    }
+  }
+}
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+canvas.addEventListener('pointerdown', e => {
+  pointerDown = true;
+  const p = getPos(e);
+  px = p.x; py = p.y;
+  spawnAt(p.x, p.y);
+});
+canvas.addEventListener('pointermove', e => {
+  const p = getPos(e);
+  px = p.x; py = p.y;
+  if (pointerDown && mode === 'fountain') spawnAt(p.x, p.y);
+});
+window.addEventListener('pointerup', () => pointerDown = false);
+
+let fountainTimer = null;
+canvas.addEventListener('pointerdown', () => {
+  if (fountainTimer) clearInterval(fountainTimer);
+  fountainTimer = setInterval(() => {
+    if (pointerDown && mode === 'fountain') spawnAt(px, py);
+  }, 40);
+});
+window.addEventListener('pointerup', () => {
+  if (fountainTimer) { clearInterval(fountainTimer); fountainTimer = null; }
+});
+
+const countEl = document.getElementById('count');
+const hintEl = document.getElementById('hint');
+let hasInteracted = false;
+
+function update() {
+  ctx.fillStyle = 'rgba(10, 10, 18, 0.18)';
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += gravity * 0.3;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= p.decay;
+
+    if (p.life <= 0 || p.y > window.innerHeight + 50 || p.x < -50 || p.x > window.innerWidth + 50) {
+      particles.splice(i, 1);
+      continue;
+    }
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${p.life})`;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${p.life * 0.6})`;
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  countEl.textContent = particles.length + ' partículas';
+  if (particles.length > 0 && !hasInteracted) {
+    hasInteracted = true;
+    hintEl.style.opacity = '0';
+  }
+
+  requestAnimationFrame(update);
+}
+
+ctx.fillStyle = '#0a0a12';
+ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+update();
+</script>
+</body>
+</html>
